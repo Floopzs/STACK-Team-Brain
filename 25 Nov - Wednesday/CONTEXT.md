@@ -12,7 +12,7 @@ A web dashboard that pulls course deadlines and announcements from Edunex, SIX, 
 - The user installs a **browser extension**. It uses their existing login session to read the data and sends it to the **dashboard website**.
 - **Gemini API** extracts, ranks and dedupes deadlines from announcement text.
 - **Gemini** turns every item into one format: `{ course, platform, title, deadline, urgency_rank, summary, original_url }`. A rule-based parser takes over if Gemini fails.
-- **Feasibility:** Edunex and SIX are confirmed working. Teams is being tested. Outlook and Classroom are not confirmed yet.
+- **Feasibility (26 Nov):** Rasha's extension build works on Edunex and SIX. Teams, Outlook and Classroom have not been tested yet.
 - **Name:** Ganesmart (used in the files from 25 Nov).
 - **Why it's different:** it sits on top of the existing tools, so nobody has to migrate.
 - **Distribution:** free, as an unpacked Chrome extension and open-source repo for the pilot (no Chrome Web Store fee yet).
@@ -25,7 +25,8 @@ A web dashboard that pulls course deadlines and announcements from Edunex, SIX, 
 ## Built so far (prototype)
 - **Dashboard** (`index.html`, Tailwind + vanilla JS): course table, feed sorted by deadline and urgency with duplicates merged, source filters, manual paste with rule-based fallback, privacy panel with per-source toggles and "Delete Everything".
 - **Extension** (Manifest V3): popup with privacy notice, Scan Open Tab, Delete Everything and saved deadlines; background script for course matching, dedupe, urgency and Gemini/fallback; Edunex content script verified live.
-- **Not built yet:** Edunex notifications/modules and SIX extractors, backend server, Teams/Outlook/Classroom connectors, user testing.
+- **Tested working (26 Nov, Rasha):** extension on Edunex and SIX.
+- **Not built/tested yet:** Teams, Outlook and Classroom readers, remaining Edunex notifications/modules extractors, backend server, Teams/Outlook/Classroom connectors, user testing.
 
 ## Data policy (decided)
 - We pull only the course name, item title, due/posted date and source link.
