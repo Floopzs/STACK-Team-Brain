@@ -14,6 +14,7 @@ A web dashboard that pulls course deadlines and announcements from Edunex, SIX, 
 - **Gemini** turns every item into one format: `{ course, platform, title, deadline, urgency_rank, summary, original_url }`. A rule-based parser takes over if Gemini fails.
 - **Feasibility (26 Nov):** Rasha's extension build works on Edunex and SIX. Teams, Outlook and Classroom have not been tested yet.
 - **Name:** Ganesmart (used in the files from 25 Nov).
+- **Edunex parent vs normal class (key pain point, from Marvell):** a course often has a parent class and a normal class that both show the same assignment, so students can't tell where an assignment or quiz actually lives. Ganesmart should merge those duplicates into one item and link to the class where it should be submitted. Good example for the problem section and the demo (back it with a screenshot or survey answers, not just our word).
 - **Why it's different:** it sits on top of the existing tools, so nobody has to migrate.
 - **Distribution:** free, as an unpacked Chrome extension and open-source repo for the pilot (no Chrome Web Store fee yet).
 
