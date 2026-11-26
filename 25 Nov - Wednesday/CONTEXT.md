@@ -25,7 +25,7 @@ A web dashboard that pulls course deadlines and announcements from Edunex, SIX, 
 ## Built so far (prototype)
 - **Dashboard** (`index.html`, Tailwind + vanilla JS): course table, feed sorted by deadline and urgency with duplicates merged, source filters, manual paste with rule-based fallback, privacy panel with per-source toggles and "Delete Everything".
 - **Extension** (Manifest V3): popup with privacy notice, Scan Open Tab, Delete Everything and saved deadlines; background script for course matching, dedupe, urgency and Gemini/fallback; Edunex content script verified live.
-- **Tested working (26 Nov, Rasha):** extension on Edunex and SIX.
+- **Tested working (26 Nov, Rasha):** extension on Edunex and SIX. The extension → dashboard link is done: the dashboard shows real data, each item with a link to where it came from.
 - **Not built/tested yet:** Teams, Outlook and Classroom readers, remaining Edunex notifications/modules extractors, backend server, Teams/Outlook/Classroom connectors, user testing.
 
 ## Data policy (decided)
@@ -50,7 +50,7 @@ A web dashboard that pulls course deadlines and announcements from Edunex, SIX, 
 - **Marvell:** proposal writing and competitor/alternatives research.
 
 ## Timeline
-- **Thu 26:** survey running, connect the extension to the dashboard
+- **Thu 26:** survey running, connect the extension to the dashboard ✓ (done)
 - **Fri 27:** finish the extension → dashboard link
 - **Sat 28:** close the survey, get a working demo with real data, take screenshots
 - **Sun 29:** write the evidence sections and the video script, record the video
