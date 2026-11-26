@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Ganesmart Reader",
-  "version": "0.1.0",
-  "description": "Reads open Edunex & SIX pages/feeds locally to surface deadlines without touching credentials, tokens, or grades.",
+  "version": "0.2.0",
+  "description": "Syncs your Edunex deadlines straight from Edunex, using the login already in your browser. Never stores or sends your login, grades, or files.",
   "permissions": [
     "storage",
     "activeTab",
@@ -25,7 +25,12 @@
         "*://*.cognisia.id/*"
       ],
       "js": ["content.js"],
-      "run_at": "document_idle" 
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://edunex.itb.ac.id/*"],
+      "js": ["edunex-sync.js"],
+      "run_at": "document_idle"
     }
   ]
-}
+}

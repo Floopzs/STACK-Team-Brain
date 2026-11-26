@@ -4,6 +4,8 @@ const itemCountEl = document.getElementById("itemCount");
 
 const edunexToggle = document.getElementById("edunexToggle");
 const sixToggle = document.getElementById("sixToggle");
+const autoSyncToggle = document.getElementById("autoSyncToggle");
+const lastSyncEl = document.getElementById("lastSync");
 const geminiToggle = document.getElementById("geminiToggle");
 const geminiKeyInput = document.getElementById("geminiKeyInput");
 const backendToggle = document.getElementById("backendToggle");
@@ -34,6 +36,7 @@ async function refreshUI() {
   const { items = [], settings = {} } = res;
   edunexToggle.checked = Boolean(settings.edunexEnabled);
   sixToggle.checked = Boolean(settings.sixEnabled);
+  autoSyncToggle.checked = settings.autoSyncEdunex !== false;
   geminiToggle.checked = Boolean(settings.geminiEnabled);
   geminiKeyInput.value = settings.geminiApiKey || "";
   backendToggle.checked = Boolean(settings.backendSyncEnabled);
@@ -48,14 +51,18 @@ async function refreshUI() {
   itemCountEl.textContent = visibleItems.length;
 
   if (visibleItems.length === 0) {
-    feedListEl.innerHTML = `<div class="item-meta">No saved items yet. Open Edunex or SIX and click "Scan Open Tab".</div>`;
+    feedListEl.innerHTML = `<div class="item-meta">No saved items yet. Click "Sync Edunex" to pull every course's deadlines.</div>`;
     return;
   }
 
   feedListEl.innerHTML = visibleItems
     .map((item) => {
       const doneClass = item.isCompleted ? "done" : "";
-      const mergedBadge = (item.mergedCount || 1) > 1 ? ` · ${item.mergedCount} merged` : "";
+      const alsoIn = Array.isArray(item.alsoIn) ? item.alsoIn : [];
+      const mergedBadge = alsoIn.length > 0
+        ? ` · also in ${alsoIn.map((a) => escapeHtml(a.className || "another class")).join(", ")}`
+        : (item.mergedCount || 1) > 1 ? ` · ${item.mergedCount} merged` : "";
+      const classLabel = item.className ? ` (${escapeHtml(item.className)})` : "";
       const linkHtml = item.sourceUrl
         ? `<a class="item-link" href="${item.sourceUrl}" target="_blank" rel="noopener noreferrer">Open source ↗</a>`
         : "";
@@ -67,7 +74,7 @@ async function refreshUI() {
             <div>
               <div class="item-title ${doneClass}">${escapeHtml(item.title)}</div>
               <div class="item-meta">
-                ${escapeHtml(item.courseCode)} · ${escapeHtml(item.sourcePlatform)} · Due: ${escapeHtml(formatDue(item.dueDate))}${mergedBadge}
+                ${escapeHtml(item.courseCode)}${classLabel} · ${escapeHtml(item.sourcePlatform)} · Due: ${escapeHtml(formatDue(item.dueDate))}${mergedBadge}
               </div>
               ${linkHtml}
             </div>
@@ -101,6 +108,33 @@ function escapeHtml(str = "") {
     .replaceAll('"', "&quot;");
 }
 
+async function refreshLastSync() {
+  const info = await sendMsg({ type: "GET_SYNC_INFO" });
+  if (!info.ok || !info.lastSyncAt) {
+    lastSyncEl.textContent = "Edunex not synced yet.";
+    return;
+  }
+  const when = new Date(info.lastSyncAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  const s = info.stats;
+  lastSyncEl.textContent = s
+    ? `Last Edunex sync ${when}: ${s.courses} courses, ${s.tasks} open items${s.merged ? `, ${s.merged} parent-class duplicates merged` : ""}.`
+    : `Last Edunex sync ${when}.`;
+}
+
+document.getElementById("syncBtn").addEventListener("click", async () => {
+  statusEl.textContent = "Syncing all Edunex courses...";
+  const res = await sendMsg({ type: "SYNC_EDUNEX" });
+  if (res.ok) {
+    statusEl.textContent = `Synced ${res.stats.courses} courses: ${res.stats.tasks} open items.`;
+  } else if (res.reason === "signed_out") {
+    statusEl.textContent = "Sign in to Edunex in the tab that just opened, then press Sync Edunex again.";
+  } else {
+    statusEl.textContent = `Edunex sync failed${res.detail ? ` (${res.detail})` : ""}. Try again in a minute.`;
+  }
+  refreshUI();
+  refreshLastSync();
+});
+
 document.getElementById("scanBtn").addEventListener("click", async () => {
   statusEl.textContent = "Scanning active tab...";
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -127,6 +161,7 @@ document.getElementById("clearAllBtn").addEventListener("click", async () => {
   await sendMsg({ type: "DELETE_ALL_DATA" });
   statusEl.textContent = "All local items and course cache deleted.";
   refreshUI();
+  refreshLastSync();
 });
 
 document.getElementById("saveSettingsBtn").addEventListener("click", async () => {
@@ -135,6 +170,7 @@ document.getElementById("saveSettingsBtn").addEventListener("click", async () =>
     settings: {
       edunexEnabled: edunexToggle.checked,
       sixEnabled: sixToggle.checked,
+      autoSyncEdunex: autoSyncToggle.checked,
       geminiEnabled: geminiToggle.checked,
       geminiApiKey: geminiKeyInput.value.trim(),
       backendSyncEnabled: backendToggle.checked,
@@ -146,3 +182,4 @@ document.getElementById("saveSettingsBtn").addEventListener("click", async () =>
 });
 
 refreshUI();
+refreshLastSync();
