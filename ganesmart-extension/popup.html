@@ -71,16 +71,16 @@
 
   <!-- First-Screen Privacy & Transparency Commitment -->
   <div class="card privacy-box">
-    <p><strong>The concept:</strong> one click pulls every course's deadlines straight from Edunex, using the login already in your browser. No need to open each course or scroll. It never asks for your password. Teams, Outlook and Classroom connect through their official sign-in instead. Everything lands in one dashboard sorted by deadline.</p>
+    <p><strong>The concept:</strong> one click pulls every course's deadlines straight from Edunex, and exam dates from your SIX timetable, using the logins already in your browser. No need to open each course or scroll. It never asks for your password. Teams, Outlook and Classroom connect through their official sign-in instead. Everything lands in one dashboard sorted by deadline.</p>
     <p><strong>What it pulls:</strong> only course name, assignment or announcement title, due date, posted date, and a link back to the original page.</p>
-    <p><strong>Your login:</strong> used only inside your open Edunex tab, the same way Edunex itself uses it. Ganesmart never copies, stores, or sends it anywhere.</p>
+    <p><strong>Your login:</strong> used only inside your open Edunex or SIX tab, the same way the site itself uses it. Ganesmart never copies, stores, or sends it anywhere.</p>
     <p><strong>What it never touches:</strong> your password, grades, transcripts, student ID details, files you submit, or private messages.</p>
     <p><strong>What it keeps:</strong> just those deadline items, stored on your own device by default. When Gemini reads an announcement to find the date, only that announcement's text is sent, and it isn't stored afterwards.</p>
     <p><strong>Your control:</strong> you choose which platforms to connect, can see every saved item, and can delete everything with one click.</p>
   </div>
 
   <div class="btn-row">
-    <button id="syncBtn" class="btn-primary">Sync Edunex</button>
+    <button id="syncBtn" class="btn-primary">Sync Now</button>
     <button id="scanBtn" class="btn-secondary">Scan Open Tab</button>
     <button id="clearAllBtn" class="btn-danger">Delete Everything</button>
   </div>
@@ -95,8 +95,8 @@
   <div class="card">
     <div style="font-size:12px;font-weight:700;margin-bottom:6px;">Source & Parser Controls</div>
     <label class="toggle"><input type="checkbox" id="edunexToggle" /> Edunex (all courses, synced directly)</label>
-    <label class="toggle"><input type="checkbox" id="autoSyncToggle" /> Sync Edunex by itself when I open it (at most every 30 min)</label>
-    <label class="toggle"><input type="checkbox" id="sixToggle" /> SIX (open /home, /kelas, /KalenderPendidikan-ics)</label>
+    <label class="toggle"><input type="checkbox" id="autoSyncToggle" /> Sync by itself when I open Edunex or SIX (at most every 30 min)</label>
+    <label class="toggle"><input type="checkbox" id="sixToggle" /> SIX (exam dates from your timetable + ITB academic calendar)</label>
     <label class="toggle"><input type="checkbox" id="geminiToggle" /> Use Gemini per-snippet extraction (discarded after parse)</label>
     <input type="password" id="geminiKeyInput" placeholder="Optional Gemini API key (stored locally)" />
     <label class="toggle"><input type="checkbox" id="backendToggle" /> Push stripped items to dashboard server (no tokens/grades)</label>
