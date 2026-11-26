@@ -1,8 +1,13 @@
 const STORAGE_KEYS = {
   ITEMS: "ganesmart_items_v1",
   COURSES: "ganesmart_courses_v1",
-  SETTINGS: "ganesmart_settings_v1"
+  SETTINGS: "ganesmart_settings_v1",
+  SYNC: "ganesmart_sync_v1"
 };
+
+const EDUNEX_WEB = "https://edunex.itb.ac.id";
+const EDUNEX_SYNC_PIPELINE = "Edunex Sync";
+const AUTO_SYNC_MIN_GAP_MS = 30 * 60 * 1000;
 
 const DEFAULT_SETTINGS = {
   edunexEnabled: true,
@@ -10,7 +15,8 @@ const DEFAULT_SETTINGS = {
   backendSyncEnabled: false,
   backendEndpoint: "",
   geminiApiKey: "",
-  geminiModel: "gemini-2.5-flash"
+  geminiModel: "gemini-2.5-flash",
+  autoSyncEdunex: true
 };
 
 const DEFAULT_COURSES = [
@@ -169,6 +175,9 @@ function sanitizeStrippedPayload(record) {
     sourceUrl: record.sourceUrl,
     urgencyScore: record.urgencyScore,
     mergedCount: record.mergedCount,
+    alsoIn: Array.isArray(record.alsoIn)
+      ? record.alsoIn.map((a) => ({ className: String(a.className || ""), sourceUrl: String(a.sourceUrl || "") }))
+      : [],
     isCompleted: Boolean(record.isCompleted)
   };
 }
@@ -188,25 +197,40 @@ async function maybePushStrippedToBackend(settings, strippedItems) {
   }
 }
 
+// Sort by active status, urgencyScore desc, then nearest dueDate asc
+function sortItems(list) {
+  list.sort((a, b) => {
+    if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+    const urgDiff = (b.urgencyScore || 0) - (a.urgencyScore || 0);
+    if (urgDiff !== 0) return urgDiff;
+    return Date.parse(a.dueDate || "2099-12-31") - Date.parse(b.dueDate || "2099-12-31");
+  });
+  return list;
+}
+
+function mergeCourses(existing, incoming) {
+  const courseMap = new Map(existing.map((c) => [c.code.toUpperCase(), c]));
+  for (const c of incoming || []) {
+    if (!c.code || !c.name) continue;
+    const key = c.code.toUpperCase();
+    courseMap.set(key, {
+      code: key,
+      name: String(c.name).trim(),
+      class_name: String(c.class_name || "").trim(),
+      is_enrolled: c.is_enrolled !== false,
+      is_from_six: Boolean(c.is_from_six)
+    });
+  }
+  return Array.from(courseMap.values());
+}
+
 async function ingestExtractedBatch(batch) {
   const { items, courses: existingCourses, settings } = await getState();
   let courses = [...existingCourses];
 
   // 1. Update course lookup table from /course/courses records
   if (Array.isArray(batch.courses) && batch.courses.length > 0) {
-    const courseMap = new Map(courses.map((c) => [c.code.toUpperCase(), c]));
-    for (const c of batch.courses) {
-      if (!c.code || !c.name) continue;
-      const key = c.code.toUpperCase();
-      courseMap.set(key, {
-        code: key,
-        name: String(c.name).trim(),
-        class_name: String(c.class_name || "").trim(),
-        is_enrolled: c.is_enrolled !== false,
-        is_from_six: Boolean(c.is_from_six)
-      });
-    }
-    courses = Array.from(courseMap.values());
+    courses = mergeCourses(courses, batch.courses);
     await chrome.storage.local.set({ [STORAGE_KEYS.COURSES]: courses });
   }
 
@@ -273,13 +297,7 @@ async function ingestExtractedBatch(batch) {
     }
   }
 
-  // Sort by active status, urgencyScore desc, then nearest dueDate asc
-  nextItems.sort((a, b) => {
-    if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
-    const urgDiff = (b.urgencyScore || 0) - (a.urgencyScore || 0);
-    if (urgDiff !== 0) return urgDiff;
-    return Date.parse(a.dueDate || "2099-12-31") - Date.parse(b.dueDate || "2099-12-31");
-  });
+  sortItems(nextItems);
 
   await chrome.storage.local.set({ [STORAGE_KEYS.ITEMS]: nextItems });
   await maybePushStrippedToBackend(settings, touchedStripped);
@@ -291,8 +309,161 @@ async function ingestExtractedBatch(batch) {
   };
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+// ---------------------------------------------------------------------------
+// Direct Edunex sync: Edunex's own API, called from inside an Edunex tab (see edunex-sync.js).
+// The extension only ever receives the stripped items, never the login token.
+// ---------------------------------------------------------------------------
+
+// A synced item replaces itself on every sync (same id), so nothing is double-counted.
+// Items that Edunex no longer returns (handed in, removed, more than a week overdue) drop out.
+async function storeEdunexSync(result) {
+  const { items, courses, settings } = await getState();
+  const previous = new Map(items.filter((i) => i.pipeline === EDUNEX_SYNC_PIPELINE).map((i) => [i.id, i]));
+
+  const synced = (result.items || []).map((it) => {
+    const id = `edunex-${it.key}`;
+    return sanitizeStrippedPayload({
+      id,
+      courseCode: it.courseCode,
+      courseName: it.courseName,
+      className: it.className,
+      type: it.type,
+      pipeline: EDUNEX_SYNC_PIPELINE,
+      sourcePlatform: "Edunex",
+      title: it.title,
+      dueDate: it.dueDate,
+      postedDate: it.postedDate,
+      sourceUrl: it.sourceUrl,
+      urgencyScore: computeUrgencyScore(it.type, it.dueDate),
+      mergedCount: it.mergedCount || 1,
+      alsoIn: it.alsoIn,
+      isCompleted: Boolean(previous.get(id)?.isCompleted)
+    });
+  });
+
+  // Drop older "Scan Open Tab" copies of the same Edunex items, so they don't show twice.
+  const syncedKeys = new Set(synced.map((i) => `${i.courseCode}|${normalizeTitleKey(i.title)}`));
+  const kept = items.filter((i) => {
+    if (i.pipeline === EDUNEX_SYNC_PIPELINE) return false;
+    if (i.sourcePlatform === "Edunex" && syncedKeys.has(`${i.courseCode}|${normalizeTitleKey(i.title)}`)) return false;
+    return true;
+  });
+
+  const nextItems = sortItems([...kept, ...synced]);
+  const nextCourses = mergeCourses(courses, result.courses);
+  const syncInfo = { lastSyncAt: new Date().toISOString(), stats: result.stats || null };
+
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.ITEMS]: nextItems,
+    [STORAGE_KEYS.COURSES]: nextCourses,
+    [STORAGE_KEYS.SYNC]: syncInfo
+  });
+  await maybePushStrippedToBackend(settings, synced);
+
+  return { totalItems: nextItems.length, syncInfo };
+}
+
+function waitForTabComplete(tabId, timeoutMs = 20000) {
+  return new Promise((resolve) => {
+    const done = (ok) => {
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      resolve(ok);
+    };
+    const onUpdated = (id, info) => {
+      if (id === tabId && info.status === "complete") done(true);
+    };
+    const timer = setTimeout(() => done(false), timeoutMs);
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.get(tabId).then((t) => { if (t.status === "complete") done(true); }).catch(() => done(false));
+  });
+}
+
+async function askTabToSync(tabId) {
+  // The content script loads at document_idle, so give a freshly opened tab a few tries.
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      const res = await chrome.tabs.sendMessage(tabId, { type: "EDUNEX_SYNC" });
+      if (res) return res;
+    } catch (_err) {
+      // not ready yet
+    }
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  return null;
+}
+
+// One sync at a time: a second request (popup click, another Edunex tab) waits for the first.
+let syncInFlight = null;
+function once(fn) {
+  if (!syncInFlight) syncInFlight = fn().finally(() => { syncInFlight = null; });
+  return syncInFlight;
+}
+
+async function syncEdunexNow() {
+  return once(syncEdunexNowInner);
+}
+
+async function syncEdunexNowInner() {
+  const open = await chrome.tabs.query({ url: `${EDUNEX_WEB}/*` });
+  let tab = open.find((t) => t.status === "complete") || open[0];
+  let openedByUs = false;
+
+  if (!tab) {
+    tab = await chrome.tabs.create({ url: `${EDUNEX_WEB}/`, active: false });
+    openedByUs = true;
+    await waitForTabComplete(tab.id);
+  }
+
+  const res = await askTabToSync(tab.id);
+
+  if (!res || (!res.ok && res.reason === "signed_out")) {
+    // Not signed in (or Edunex sent the tab to the sign-in page). Show the tab so the student
+    // can sign in on the real ITB page; the extension never sees the password.
+    await chrome.tabs.update(tab.id, { active: true });
+    return { ok: false, reason: "signed_out" };
+  }
+
+  if (openedByUs) chrome.tabs.remove(tab.id).catch(() => {});
+  if (!res.ok) return res;
+
+  const stored = await storeEdunexSync(res);
+  return { ok: true, stats: res.stats, ...stored };
+}
+
+async function syncFromTabIfStale(tabId) {
+  const { settings } = await getState();
+  if (!settings.edunexEnabled || !settings.autoSyncEdunex) return;
+  const data = await chrome.storage.local.get(STORAGE_KEYS.SYNC);
+  const last = Date.parse(data[STORAGE_KEYS.SYNC]?.lastSyncAt || "");
+  if (!Number.isNaN(last) && Date.now() - last < AUTO_SYNC_MIN_GAP_MS) return;
+
+  await once(async () => {
+    const res = await askTabToSync(tabId);
+    if (res && res.ok) await storeEdunexSync(res);
+  });
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
+    if (message?.type === "SYNC_EDUNEX") {
+      const result = await syncEdunexNow();
+      sendResponse(result);
+      return;
+    }
+
+    if (message?.type === "EDUNEX_TAB_READY") {
+      sendResponse({ ok: true });
+      if (sender.tab?.id) await syncFromTabIfStale(sender.tab.id);
+      return;
+    }
+
+    if (message?.type === "GET_SYNC_INFO") {
+      const data = await chrome.storage.local.get(STORAGE_KEYS.SYNC);
+      sendResponse({ ok: true, ...(data[STORAGE_KEYS.SYNC] || {}) });
+      return;
+    }
+
     if (message?.type === "INGEST_BATCH") {
       const result = await ingestExtractedBatch(message.payload || {});
       sendResponse({ ok: true, ...result });
@@ -334,6 +505,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         [STORAGE_KEYS.ITEMS]: [],
         [STORAGE_KEYS.COURSES]: []
       });
+      await chrome.storage.local.remove(STORAGE_KEYS.SYNC);
       sendResponse({ ok: true });
       return;
     }
@@ -342,4 +514,4 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   })();
 
   return true;
-});
+});
