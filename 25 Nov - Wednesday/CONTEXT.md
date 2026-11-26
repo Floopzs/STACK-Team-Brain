@@ -64,6 +64,11 @@ Done: identity block, 2.1 problem context, 2.2 target users.
 Can be written now: roles, alternatives, solution, features and architecture, privacy, milestones, risks, AI disclosure.
 Blocked: survey results (evidence), prototype screenshots, signed declaration.
 
+## Competitor: Edunex Plus
+- **What it is:** an ITB student app (github.com/pablonification/edunex-plus) that already merges Edunex + SIX deadlines, including parent classes.
+- **Our edge (Marvell):** no app to install or sideload (especially on iOS), no separate login, and nothing stored on a server. Also: Teams/Outlook/Classroom, Gemini reading announcement text, and a "Tandai Hadir" attendance alert (detects when attendance opens, sends a local notification with a short link, never clicks for you; Rasha's short link already works).
+- ⚠ **Careful with the iOS claim:** Chrome extensions don't run on iPhone, and data is stored on the device that ran the extension. So say "no app install or sideloading", and only claim iPhone use if the dashboard can actually be opened there with the data.
+
 ## Known risks (for the proposal)
 Extension only works when the page is open in desktop Chrome; Edunex/SIX layout changes can break it; ITB's Microsoft tenant may block API access; local storage means no cross-device sync by default; Gemini limits (rule-based fallback). Manual paste is the fallback for everything.
 
