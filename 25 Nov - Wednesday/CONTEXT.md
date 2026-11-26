@@ -27,6 +27,8 @@ A web dashboard that pulls course deadlines and announcements from Edunex, SIX, 
 - **Dashboard** (`index.html`, Tailwind + vanilla JS): course table, feed sorted by deadline and urgency with duplicates merged, source filters, manual paste with rule-based fallback, privacy panel with per-source toggles and "Delete Everything".
 - **Extension** (Manifest V3): popup with privacy notice, Scan Open Tab, Delete Everything and saved deadlines; background script for course matching, dedupe, urgency and Gemini/fallback; Edunex content script verified live.
 - **Tested working (26 Nov, Rasha):** extension on Edunex and SIX. The extension → dashboard link is done: the dashboard shows real data, each item with a link to where it came from.
+- **Direction (Marvell, 26 Nov):** the extension should grab data directly (API/token sync) instead of reading what's on screen. Being worked on now.
+- **Known demo limits:** it scans only the open tab, and overdue items still show (e.g. PR 03, due 13 Oct). Filtering/sorting these will be handled by AI later.
 - **Not built/tested yet:** Teams, Outlook and Classroom readers, remaining Edunex notifications/modules extractors, backend server, Teams/Outlook/Classroom connectors, user testing.
 
 ## Data policy (decided)
@@ -35,7 +37,7 @@ A web dashboard that pulls course deadlines and announcements from Edunex, SIX, 
 - We never touch passwords, grades, student IDs, submissions or private messages.
 - Data is stored locally by default, and the user can view and delete all of it.
 - Gemini gets only announcement text, and nothing is stored there.
-- ⚠ The popup says it "never touches your login session", but the Edunex reader uses the browser's login token. That wording should change to something like "uses your existing login inside the browser, never stores or sends it".
+- ⚠ Rasha's demo popup says Teams/Outlook/Classroom connect through official sign-in and that it "never touches your login session". Once the extension syncs directly with the login token (being built now), change it to: "uses your existing login inside the browser, never stores or sends it".
 
 ## Semifinal deliverables, due Mon 30 Nov 23:59 WIB
 1. **Proposal PDF:** in English, at most 10 content pages, with the 7 required sections. It needs a **signed Declaration of Originality** as an appendix (Hafidz signs) and an AI-use disclosure.
