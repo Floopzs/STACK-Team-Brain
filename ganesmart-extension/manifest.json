@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Ganesmart Reader",
+  "version": "0.1.0",
+  "description": "Reads open Edunex & SIX pages/feeds locally to surface deadlines without touching credentials, tokens, or grades.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://*.itb.ac.id/*",
+    "*://*.cognisia.id/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.itb.ac.id/*",
+        "*://*.cognisia.id/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle" 
+    }
+  ]
+}
