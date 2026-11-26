@@ -51,7 +51,7 @@ async function refreshUI() {
   itemCountEl.textContent = visibleItems.length;
 
   if (visibleItems.length === 0) {
-    feedListEl.innerHTML = `<div class="item-meta">No saved items yet. Click "Sync Now" to pull every course's deadlines.</div>`;
+    feedListEl.innerHTML = `<div class="item-meta">No saved items yet. Click "Sync Edunex" to pull every course's deadlines.</div>`;
     return;
   }
 
@@ -108,38 +108,29 @@ function escapeHtml(str = "") {
     .replaceAll('"', "&quot;");
 }
 
-const SOURCE_LABELS = { edunex: "Edunex", six: "SIX" };
-
-function describeStats(id, s) {
-  if (!s) return "";
-  if (id === "six") return `${s.tasks} exams/events${s.calendar ? `, ${s.calendar} from ITB calendar` : ""}`;
-  return `${s.courses} courses, ${s.tasks} open items${s.merged ? `, ${s.merged} parent-class duplicates merged` : ""}`;
-}
-
 async function refreshLastSync() {
   const info = await sendMsg({ type: "GET_SYNC_INFO" });
-  const lines = Object.keys(SOURCE_LABELS)
-    .filter((id) => info.ok && info[id]?.lastSyncAt)
-    .map((id) => {
-      const when = new Date(info[id].lastSyncAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
-      const stats = describeStats(id, info[id].stats);
-      return `${SOURCE_LABELS[id]} synced ${when}${stats ? `: ${stats}` : ""}.`;
-    });
-  lastSyncEl.textContent = lines.length ? lines.join(" ") : "Not synced yet.";
-}
-
-function describeResult(id, res) {
-  const name = SOURCE_LABELS[id];
-  if (res.ok) return `${name}: ${describeStats(id, res.stats)}.`;
-  if (res.reason === "signed_out") return `${name}: sign in in the tab that just opened, then press Sync Now again.`;
-  return `${name}: sync failed${res.detail ? ` (${res.detail})` : ""}.`;
+  if (!info.ok || !info.lastSyncAt) {
+    lastSyncEl.textContent = "Edunex not synced yet.";
+    return;
+  }
+  const when = new Date(info.lastSyncAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  const s = info.stats;
+  lastSyncEl.textContent = s
+    ? `Last Edunex sync ${when}: ${s.courses} courses, ${s.tasks} open items${s.merged ? `, ${s.merged} parent-class duplicates merged` : ""}.`
+    : `Last Edunex sync ${when}.`;
 }
 
 document.getElementById("syncBtn").addEventListener("click", async () => {
-  statusEl.textContent = "Syncing Edunex and SIX...";
-  const res = await sendMsg({ type: "SYNC_ALL" });
-  const parts = Object.entries(res.results || {}).map(([id, r]) => describeResult(id, r));
-  statusEl.textContent = parts.length ? parts.join(" ") : "Turn on Edunex or SIX below first.";
+  statusEl.textContent = "Syncing all Edunex courses...";
+  const res = await sendMsg({ type: "SYNC_EDUNEX" });
+  if (res.ok) {
+    statusEl.textContent = `Synced ${res.stats.courses} courses: ${res.stats.tasks} open items.`;
+  } else if (res.reason === "signed_out") {
+    statusEl.textContent = "Sign in to Edunex in the tab that just opened, then press Sync Edunex again.";
+  } else {
+    statusEl.textContent = `Edunex sync failed${res.detail ? ` (${res.detail})` : ""}. Try again in a minute.`;
+  }
   refreshUI();
   refreshLastSync();
 });

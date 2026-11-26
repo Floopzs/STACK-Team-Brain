@@ -7,8 +7,6 @@ const STORAGE_KEYS = {
 
 const EDUNEX_WEB = "https://edunex.itb.ac.id";
 const EDUNEX_SYNC_PIPELINE = "Edunex Sync";
-const SIX_WEB = "https://six.itb.ac.id";
-const SIX_SYNC_PIPELINE = "SIX Sync";
 const AUTO_SYNC_MIN_GAP_MS = 30 * 60 * 1000;
 
 const DEFAULT_SETTINGS = {
@@ -312,108 +310,26 @@ async function ingestExtractedBatch(batch) {
 }
 
 // ---------------------------------------------------------------------------
-// Direct sync: each platform is read from inside its own tab, with the login that tab already
-// has (edunex-sync.js, six-sync.js). The extension only ever receives the stripped items,
-// never a token, cookie or password.
+// Direct Edunex sync: Edunex's own API, called from inside an Edunex tab (see edunex-sync.js).
+// The extension only ever receives the stripped items, never the login token.
 // ---------------------------------------------------------------------------
 
-const SOURCES = {
-  edunex: {
-    label: "Edunex",
-    match: `${EDUNEX_WEB}/*`,
-    openUrl: `${EDUNEX_WEB}/`,
-    message: "EDUNEX_SYNC",
-    pipeline: EDUNEX_SYNC_PIPELINE,
-    platform: "Edunex",
-    enabledKey: "edunexEnabled"
-  },
-  six: {
-    label: "SIX",
-    match: `${SIX_WEB}/*`,
-    openUrl: `${SIX_WEB}/home`,
-    message: "SIX_SYNC",
-    pipeline: SIX_SYNC_PIPELINE,
-    platform: "SIX",
-    enabledKey: "sixEnabled"
-  }
-};
-
-// ITB's public academic calendar (linked from SIX's home page). No login involved.
-const ITB_CALENDAR_ICS = "https://goitb.id/KalenderPendidikan-ics";
-const CALENDAR_DAYS_AHEAD = 45;
-
-function parseIcsEvents(text) {
-  const lines = String(text).replace(/\r?\n[ \t]/g, "").split(/\r?\n/);
-  const events = [];
-  let cur = null;
-  for (const line of lines) {
-    if (line === "BEGIN:VEVENT") cur = {};
-    else if (line === "END:VEVENT") { if (cur) events.push(cur); cur = null; }
-    else if (cur) {
-      const i = line.indexOf(":");
-      if (i < 0) continue;
-      const name = line.slice(0, i).split(";")[0].toUpperCase();
-      cur[name] = line.slice(i + 1).replace(/\\,/g, ",").replace(/\\n/gi, " ").trim();
-    }
-  }
-  return events;
-}
-
-// Academic calendar events in the next few weeks, as SIX items. Best effort: a failure here
-// never fails the SIX sync.
-async function fetchItbCalendarItems() {
-  try {
-    const res = await fetch(ITB_CALENDAR_ICS, { credentials: "omit" });
-    if (!res.ok) return [];
-    const now = Date.now();
-    const items = [];
-    for (const ev of parseIcsEvents(await res.text())) {
-      const m = /^(\d{4})(\d{2})(\d{2})/.exec(ev.DTSTART || "");
-      if (!m || !ev.SUMMARY) continue;
-      const isDeadline = /\b(batas|akhir|terakhir|deadline)\b/i.test(ev.SUMMARY);
-      const due = `${m[1]}-${m[2]}-${m[3]}T${isDeadline ? "23:59" : "00:00"}:00+07:00`;
-      const dueMs = Date.parse(due);
-      if (dueMs < now - 86400000 || dueMs > now + CALENDAR_DAYS_AHEAD * 86400000) continue;
-      items.push({
-        key: `calendar-${ev.UID || `${m[0]}-${ev.SUMMARY}`}`,
-        courseCode: "ITB",
-        courseName: "ITB Academic Calendar",
-        className: "",
-        type: "SCHEDULE",
-        title: ev.SUMMARY.slice(0, 120),
-        dueDate: due,
-        postedDate: null,
-        sourceUrl: ITB_CALENDAR_ICS
-      });
-    }
-    return items;
-  } catch (_err) {
-    return [];
-  }
-}
-
-async function getSyncInfo() {
-  const data = await chrome.storage.local.get(STORAGE_KEYS.SYNC);
-  return data[STORAGE_KEYS.SYNC] || {};
-}
-
 // A synced item replaces itself on every sync (same id), so nothing is double-counted.
-// Items the platform no longer returns (handed in, removed, long past) drop out.
-async function storeSync(sourceId, result) {
-  const source = SOURCES[sourceId];
+// Items that Edunex no longer returns (handed in, removed, more than a week overdue) drop out.
+async function storeEdunexSync(result) {
   const { items, courses, settings } = await getState();
-  const previous = new Map(items.filter((i) => i.pipeline === source.pipeline).map((i) => [i.id, i]));
+  const previous = new Map(items.filter((i) => i.pipeline === EDUNEX_SYNC_PIPELINE).map((i) => [i.id, i]));
 
   const synced = (result.items || []).map((it) => {
-    const id = `${sourceId}-${it.key}`;
+    const id = `edunex-${it.key}`;
     return sanitizeStrippedPayload({
       id,
       courseCode: it.courseCode,
       courseName: it.courseName,
       className: it.className,
       type: it.type,
-      pipeline: source.pipeline,
-      sourcePlatform: source.platform,
+      pipeline: EDUNEX_SYNC_PIPELINE,
+      sourcePlatform: "Edunex",
       title: it.title,
       dueDate: it.dueDate,
       postedDate: it.postedDate,
@@ -425,17 +341,17 @@ async function storeSync(sourceId, result) {
     });
   });
 
-  // Drop older "Scan Open Tab" copies of the same items, so they don't show twice.
+  // Drop older "Scan Open Tab" copies of the same Edunex items, so they don't show twice.
   const syncedKeys = new Set(synced.map((i) => `${i.courseCode}|${normalizeTitleKey(i.title)}`));
   const kept = items.filter((i) => {
-    if (i.pipeline === source.pipeline) return false;
-    if (i.sourcePlatform === source.platform && syncedKeys.has(`${i.courseCode}|${normalizeTitleKey(i.title)}`)) return false;
+    if (i.pipeline === EDUNEX_SYNC_PIPELINE) return false;
+    if (i.sourcePlatform === "Edunex" && syncedKeys.has(`${i.courseCode}|${normalizeTitleKey(i.title)}`)) return false;
     return true;
   });
 
   const nextItems = sortItems([...kept, ...synced]);
   const nextCourses = mergeCourses(courses, result.courses);
-  const syncInfo = { ...(await getSyncInfo()), [sourceId]: { lastSyncAt: new Date().toISOString(), stats: result.stats || null } };
+  const syncInfo = { lastSyncAt: new Date().toISOString(), stats: result.stats || null };
 
   await chrome.storage.local.set({
     [STORAGE_KEYS.ITEMS]: nextItems,
@@ -444,17 +360,7 @@ async function storeSync(sourceId, result) {
   });
   await maybePushStrippedToBackend(settings, synced);
 
-  return { totalItems: nextItems.length };
-}
-
-// Runs a platform's in-tab result through any extra steps, then stores it.
-async function finishSync(sourceId, res) {
-  if (sourceId === "six") {
-    const calendar = await fetchItbCalendarItems();
-    res = { ...res, items: [...(res.items || []), ...calendar], stats: { ...(res.stats || {}), calendar: calendar.length } };
-  }
-  const stored = await storeSync(sourceId, res);
-  return { ok: true, stats: res.stats, ...stored };
+  return { totalItems: nextItems.length, syncInfo };
 }
 
 function waitForTabComplete(tabId, timeoutMs = 20000) {
@@ -473,11 +379,11 @@ function waitForTabComplete(tabId, timeoutMs = 20000) {
   });
 }
 
-async function askTabToSync(tabId, message) {
+async function askTabToSync(tabId) {
   // The content script loads at document_idle, so give a freshly opened tab a few tries.
   for (let attempt = 0; attempt < 6; attempt++) {
     try {
-      const res = await chrome.tabs.sendMessage(tabId, { type: message });
+      const res = await chrome.tabs.sendMessage(tabId, { type: "EDUNEX_SYNC" });
       if (res) return res;
     } catch (_err) {
       // not ready yet
@@ -487,92 +393,77 @@ async function askTabToSync(tabId, message) {
   return null;
 }
 
-// One sync per platform at a time: a second request (popup click, another tab) waits for the first.
-const inFlight = {};
-function once(sourceId, fn) {
-  if (!inFlight[sourceId]) inFlight[sourceId] = fn().finally(() => { inFlight[sourceId] = null; });
-  return inFlight[sourceId];
+// One sync at a time: a second request (popup click, another Edunex tab) waits for the first.
+let syncInFlight = null;
+function once(fn) {
+  if (!syncInFlight) syncInFlight = fn().finally(() => { syncInFlight = null; });
+  return syncInFlight;
 }
 
-async function syncNow(sourceId) {
-  const source = SOURCES[sourceId];
-  return once(sourceId, async () => {
-    const open = await chrome.tabs.query({ url: source.match });
-    let tab = open.find((t) => t.status === "complete") || open[0];
-    let openedByUs = false;
-
-    if (!tab) {
-      tab = await chrome.tabs.create({ url: source.openUrl, active: false });
-      openedByUs = true;
-      await waitForTabComplete(tab.id);
-    }
-
-    const res = await askTabToSync(tab.id, source.message);
-
-    if (!res || (!res.ok && res.reason === "signed_out")) {
-      // Not signed in (or the site sent the tab to its sign-in page). Show the tab so the
-      // student can sign in on the real ITB page; the extension never sees the password.
-      await chrome.tabs.update(tab.id, { active: true });
-      return { ok: false, reason: "signed_out" };
-    }
-
-    if (openedByUs) chrome.tabs.remove(tab.id).catch(() => {});
-    if (!res.ok) return res;
-    return finishSync(sourceId, res);
-  });
+async function syncEdunexNow() {
+  return once(syncEdunexNowInner);
 }
 
-async function syncAll() {
-  const { settings } = await getState();
-  const results = {};
-  for (const sourceId of Object.keys(SOURCES)) {
-    if (settings[SOURCES[sourceId].enabledKey] === false) continue;
-    results[sourceId] = await syncNow(sourceId);
+async function syncEdunexNowInner() {
+  const open = await chrome.tabs.query({ url: `${EDUNEX_WEB}/*` });
+  let tab = open.find((t) => t.status === "complete") || open[0];
+  let openedByUs = false;
+
+  if (!tab) {
+    tab = await chrome.tabs.create({ url: `${EDUNEX_WEB}/`, active: false });
+    openedByUs = true;
+    await waitForTabComplete(tab.id);
   }
-  return { ok: true, results };
+
+  const res = await askTabToSync(tab.id);
+
+  if (!res || (!res.ok && res.reason === "signed_out")) {
+    // Not signed in (or Edunex sent the tab to the sign-in page). Show the tab so the student
+    // can sign in on the real ITB page; the extension never sees the password.
+    await chrome.tabs.update(tab.id, { active: true });
+    return { ok: false, reason: "signed_out" };
+  }
+
+  if (openedByUs) chrome.tabs.remove(tab.id).catch(() => {});
+  if (!res.ok) return res;
+
+  const stored = await storeEdunexSync(res);
+  return { ok: true, stats: res.stats, ...stored };
 }
 
-async function syncFromTabIfStale(sourceId, tabId) {
-  const source = SOURCES[sourceId];
+async function syncFromTabIfStale(tabId) {
   const { settings } = await getState();
-  if (settings[source.enabledKey] === false || !settings.autoSyncEdunex) return;
-  const last = Date.parse((await getSyncInfo())[sourceId]?.lastSyncAt || "");
+  if (!settings.edunexEnabled || !settings.autoSyncEdunex) return;
+  const data = await chrome.storage.local.get(STORAGE_KEYS.SYNC);
+  const last = Date.parse(data[STORAGE_KEYS.SYNC]?.lastSyncAt || "");
   if (!Number.isNaN(last) && Date.now() - last < AUTO_SYNC_MIN_GAP_MS) return;
 
-  await once(sourceId, async () => {
-    const res = await askTabToSync(tabId, source.message);
-    if (res && res.ok) await finishSync(sourceId, res);
+  await once(async () => {
+    const res = await askTabToSync(tabId);
+    if (res && res.ok) await storeEdunexSync(res);
   });
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
-    if (message?.type === "SYNC_ALL") {
-      sendResponse(await syncAll());
-      return;
-    }
-
     if (message?.type === "SYNC_EDUNEX") {
-      sendResponse(await syncNow("edunex"));
+      const result = await syncEdunexNow();
+      sendResponse(result);
       return;
     }
 
-    if (message?.type === "SYNC_SIX") {
-      sendResponse(await syncNow("six"));
-      return;
-    }
-
-    if (message?.type === "EDUNEX_TAB_READY" || message?.type === "SIX_TAB_READY") {
+    if (message?.type === "EDUNEX_TAB_READY") {
       sendResponse({ ok: true });
-      const sourceId = message.type === "SIX_TAB_READY" ? "six" : "edunex";
-      if (sender.tab?.id) await syncFromTabIfStale(sourceId, sender.tab.id);
+      if (sender.tab?.id) await syncFromTabIfStale(sender.tab.id);
       return;
     }
 
     if (message?.type === "GET_SYNC_INFO") {
-      sendResponse({ ok: true, ...(await getSyncInfo()) });
+      const data = await chrome.storage.local.get(STORAGE_KEYS.SYNC);
+      sendResponse({ ok: true, ...(data[STORAGE_KEYS.SYNC] || {}) });
       return;
     }
+
     if (message?.type === "INGEST_BATCH") {
       const result = await ingestExtractedBatch(message.payload || {});
       sendResponse({ ok: true, ...result });
@@ -623,4 +514,4 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   })();
 
   return true;
-});
+});

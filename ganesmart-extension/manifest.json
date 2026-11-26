@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Ganesmart Reader",
   "version": "0.2.0",
-  "description": "Syncs your Edunex and SIX deadlines straight from each site, using the login already in your browser. Never stores or sends your login, grades, or files.",
+  "description": "Syncs your Edunex deadlines straight from Edunex, using the login already in your browser. Never stores or sends your login, grades, or files.",
   "permissions": [
     "storage",
     "activeTab",
@@ -10,8 +10,7 @@
   ],
   "host_permissions": [
     "*://*.itb.ac.id/*",
-    "*://*.cognisia.id/*",
-    "https://goitb.id/*"
+    "*://*.cognisia.id/*"
   ],
   "action": {
     "default_popup": "popup.html"
@@ -31,11 +30,6 @@
     {
       "matches": ["https://edunex.itb.ac.id/*"],
       "js": ["edunex-sync.js"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://six.itb.ac.id/*"],
-      "js": ["six-sync.js"],
       "run_at": "document_idle"
     }
   ]
