@@ -54,7 +54,7 @@
     .item-link { font-size: 10px; color: #2563eb; text-decoration: none; }
     .done { text-decoration: line-through; opacity: 0.6; }
     label.toggle { display: flex; align-items: center; gap: 6px; font-size: 11px; margin-bottom: 6px; }
-    input[type="text"], input[type="password"] {
+    input[type="text"], input[type="password"], input[type="date"], select {
       width: 100%;
       box-sizing: border-box;
       font-size: 11px;
@@ -62,12 +62,13 @@
       border: 1px solid #cbd5e1;
       border-radius: 6px;
       margin-bottom: 6px;
+      background: #fff;
     }
   </style>
 </head>
 <body>
   <h1>Ganesmart Extension</h1>
-  <div class="sub">Local-first deadline reader for open Edunex & SIX pages</div>
+  <div class="sub">Local-first deadline & schedule reader for open Edunex, SIX & Teams pages</div>
 
   <!-- First-Screen Privacy & Transparency Commitment -->
   <div class="card privacy-box">
@@ -78,6 +79,24 @@
     <p><strong>Your control:</strong> you choose which platforms to connect, can see every saved item, and can delete everything with one click.</p>
   </div>
 
+  <!-- Time Interval Picker for SIX Classes & Deadlines -->
+  <div class="card">
+    <div style="font-size:12px;font-weight:700;margin-bottom:6px;">Time Interval (SIX Classes & Feed)</div>
+    <select id="intervalDaysSelect">
+      <option value="3">Next 3 days</option>
+      <option value="7" selected>Next 7 days (1 week)</option>
+      <option value="14">Next 14 days (2 weeks)</option>
+      <option value="30">Next 30 days</option>
+      <option value="0">All dates (full month / no cap)</option>
+    </select>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <input type="date" id="intervalStartInput" style="margin-bottom:0;" title="Optional start date" />
+      <span style="font-size:10px;color:#64748b;">to</span>
+      <input type="date" id="intervalEndInput" style="margin-bottom:0;" title="Optional end date" />
+    </div>
+    <div class="item-meta" style="margin-top:4px;">Leave dates blank to use the relative window above, or pick exact start/end dates.</div>
+  </div>
+
   <div class="btn-row">
     <button id="scanBtn" class="btn-primary">Scan Open Tab</button>
     <button id="clearAllBtn" class="btn-danger">Delete Everything</button>
@@ -85,14 +104,15 @@
   <div id="status" class="status">Ready.</div>
 
   <div class="card">
-    <div style="font-size:12px;font-weight:700;margin-bottom:6px;">Saved Deadlines (<span id="itemCount">0</span>)</div>
+    <div style="font-size:12px;font-weight:700;margin-bottom:6px;">Saved Deadlines & Classes (<span id="itemCount">0</span>)</div>
     <div id="feedList"></div>
   </div>
 
   <div class="card">
     <div style="font-size:12px;font-weight:700;margin-bottom:6px;">Source & Parser Controls</div>
-    <label class="toggle"><input type="checkbox" id="edunexToggle" /> Edunex (open page / stripped payload)</label>
-    <label class="toggle"><input type="checkbox" id="sixToggle" /> SIX (open /home, /kelas, /KalenderPendidikan-ics)</label>
+    <label class="toggle"><input type="checkbox" id="edunexToggle" /> Edunex (unsubmitted assignments)</label>
+    <label class="toggle"><input type="checkbox" id="sixToggle" /> SIX (open Jadwal / Kelas calendar)</label>
+    <label class="toggle"><input type="checkbox" id="teamsToggle" /> Microsoft Teams (open Assignments tab)</label>
     <label class="toggle"><input type="checkbox" id="geminiToggle" /> Use Gemini per-snippet extraction (discarded after parse)</label>
     <input type="password" id="geminiKeyInput" placeholder="Optional Gemini API key (stored locally)" />
     <label class="toggle"><input type="checkbox" id="backendToggle" /> Push stripped items to dashboard server (no tokens/grades)</label>
