@@ -1,15 +1,31 @@
-# STACK 2026 — Team Context (as of Thu 26 Nov)
+# STACK 2026 — Team Context (as of Thu 26 Nov, evening)
 
-**Team "i'm stacking it":** Hafidz (Akemi), Marvell, Shakila, Rasha
+**Team "i'm stacking it":** Hafidz (Akemi, leader), Marvell, Shakila, Rasha
+**Project title:** Ganesmart: All-in-one academic announcement dashboard for ITB Students
 **Event:** STACK 2026 by GDGoC ITB, Case 1: Smarter Campus and Learning
-**Stage:** Semifinal. Our abstract scored 94/100. We lost 1 point on Problem Clarity because our evidence was anecdotal and we had no data of our own, which the survey fixes.
+**Stage:** Semifinal. Our abstract scored 94/100. We lost 1 point on Problem Clarity because our evidence was anecdotal and we had no data of our own.
+**Evidence we have:** student experience, and a formal email to DITSAMA ITB on 12 Oct 2026 (acknowledged, no solution offered).
+**Evidence we're collecting by Sat 28 Nov:** the survey (target 30+ ITB students), a table of which platforms each of our courses uses, and 2–3 anonymized screenshots of announcements that only appeared on one platform.
 
 ## The product
 A web dashboard that pulls course deadlines and announcements from Edunex, SIX, Teams, Outlook and Google Classroom into one place.
 - The user installs a **browser extension**. It uses their existing login session to read the data and sends it to the **dashboard website**.
 - **Gemini API** extracts, ranks and dedupes deadlines from announcement text.
+- **Gemini** turns every item into one format: `{ course, platform, title, deadline, urgency_rank, summary, original_url }`. A rule-based parser takes over if Gemini fails.
 - **Feasibility:** Edunex and SIX are confirmed working. Teams is being tested. Outlook and Classroom are not confirmed yet.
-- **Name:** not decided. GaneSmart is a candidate, and we want something that isn't ITB-specific.
+- **Name:** Ganesmart (used in the files from 25 Nov).
+- **Why it's different:** it sits on top of the existing tools, so nobody has to migrate.
+- **Distribution:** free, as an unpacked Chrome extension and open-source repo for the pilot (no Chrome Web Store fee yet).
+
+## How each platform is read
+- **Edunex:** the extension reads the JSON API (`api-edunex.cognisia.id`) using the token already in the browser: course list, notification bell, modules. On the Assignment List page it was verified live: it keeps only unsubmitted items, parses `DD/MM/YY HH:mm` dates, and links to `/assignment/take/<id>`.
+- **SIX:** page text from `/home` and `/kelas`, plus the `/KalenderPendidikan-ics` calendar, while SIX is open.
+- **Outlook, Teams, Classroom: ⚠ not agreed yet.** Hafidz's spec reads them in the browser like Edunex (avoids Microsoft/Google sign-in approval problems). Rasha's dump says the backend pulls them through official APIs (Graph, Classroom API). The team needs to pick one.
+
+## Built so far (prototype)
+- **Dashboard** (`index.html`, Tailwind + vanilla JS): course table, feed sorted by deadline and urgency with duplicates merged, source filters, manual paste with rule-based fallback, privacy panel with per-source toggles and "Delete Everything".
+- **Extension** (Manifest V3): popup with privacy notice, Scan Open Tab, Delete Everything and saved deadlines; background script for course matching, dedupe, urgency and Gemini/fallback; Edunex content script verified live.
+- **Not built yet:** Edunex notifications/modules and SIX extractors, backend server, Teams/Outlook/Classroom connectors, user testing.
 
 ## Data policy (decided)
 - We pull only the course name, item title, due/posted date and source link.
@@ -17,6 +33,7 @@ A web dashboard that pulls course deadlines and announcements from Edunex, SIX, 
 - We never touch passwords, grades, student IDs, submissions or private messages.
 - Data is stored locally by default, and the user can view and delete all of it.
 - Gemini gets only announcement text, and nothing is stored there.
+- ⚠ The popup says it "never touches your login session", but the Edunex reader uses the browser's login token. That wording should change to something like "uses your existing login inside the browser, never stores or sends it".
 
 ## Semifinal deliverables, due Mon 30 Nov 23:59 WIB
 1. **Proposal PDF:** in English, at most 10 content pages, with the 7 required sections. It needs a **signed Declaration of Originality** as an appendix (Hafidz signs) and an AI-use disclosure.
@@ -43,10 +60,14 @@ Done: identity block, 2.1 problem context, 2.2 target users.
 Can be written now: roles, alternatives, solution, features and architecture, privacy, milestones, risks, AI disclosure.
 Blocked: survey results (evidence), prototype screenshots, signed declaration.
 
+## Known risks (for the proposal)
+Extension only works when the page is open in desktop Chrome; Edunex/SIX layout changes can break it; ITB's Microsoft tenant may block API access; local storage means no cross-device sync by default; Gemini limits (rule-based fallback). Manual paste is the fallback for everything.
+
 ## Rules from the judges
 - Target one specific user group.
 - Don't present planned features as finished.
 - Don't invent data, and label any estimates.
 
 ## Shared files
-- Proposal draft (Google Doc) and the Team Brain doc, which has one table per day for updates. Upload files to the "Team Brain files" Drive folder.
+- GitHub team brain: https://github.com/Floopzs/STACK-Team-Brain (one folder per day; this file is in `25 Nov - Wednesday`).
+- Proposal draft (Google Doc). Older Team Brain Google Doc with daily tables.
