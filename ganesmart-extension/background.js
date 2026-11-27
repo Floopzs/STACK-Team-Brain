@@ -8,6 +8,8 @@ const DEFAULT_SETTINGS = {
   edunexEnabled: true,
   sixEnabled: true,
   teamsEnabled: true,
+  classroomEnabled: true,
+  outlookEnabled: true,
   intervalDays: 7,
   intervalStartDate: "",
   intervalEndDate: "",
@@ -56,17 +58,34 @@ function normalizeTitleKey(title = "") {
     .trim();
 }
 
-function computeUrgencyScore(type, dueDateIso) {
-  let base = type === "EXAM" ? 35 : type === "ASSIGNMENT" ? 25 : type === "SCHEDULE" ? 20 : 10;
-  if (!dueDateIso) return base;
+function computeUrgencyScore(type, dueDateIso, presetScore = 0) {
+  let base =
+    type === "EXAM"
+      ? 35
+      : type === "ASSIGNMENT"
+      ? 25
+      : type === "SCHEDULE"
+      ? 20
+      : type === "IMPORTANT_MAIL"
+      ? 25
+      : 10;
+
+  if (!dueDateIso) {
+    return Math.max(base, Number(presetScore) || 0);
+  }
+
   const dueMs = Date.parse(dueDateIso);
-  if (Number.isNaN(dueMs)) return base;
+  if (Number.isNaN(dueMs)) {
+    return Math.max(base, Number(presetScore) || 0);
+  }
 
   const hoursLeft = (dueMs - Date.now()) / (1000 * 60 * 60);
-  if (hoursLeft <= 24) return Math.min(100, base + 65);
-  if (hoursLeft <= 72) return Math.min(100, base + 50);
-  if (hoursLeft <= 168) return Math.min(100, base + 30);
-  return Math.min(100, base + 15);
+  let computed = base + 15;
+  if (hoursLeft <= 24) computed = Math.min(100, base + 65);
+  else if (hoursLeft <= 72) computed = Math.min(100, base + 50);
+  else if (hoursLeft <= 168) computed = Math.min(100, base + 30);
+
+  return Math.max(computed, Number(presetScore) || 0);
 }
 
 function fallbackParseText(rawText = "") {
@@ -86,7 +105,7 @@ function fallbackParseText(rawText = "") {
   };
 }
 
-// Sends ONLY the single announcement text to Gemini and discards rawText immediately after
+// Sends ONLY the single announcement/subject snippet to Gemini and discards rawText immediately after
 async function parseWithGeminiEphemeral(rawText, apiKey, model) {
   if (!apiKey || !rawText) {
     return fallbackParseText(rawText);
@@ -177,7 +196,10 @@ function sanitizeStrippedPayload(record) {
     sourceUrl: record.sourceUrl,
     sixTarget: record.sixTarget || null,
     teamsTarget: record.teamsTarget || null,
+    classroomTarget: record.classroomTarget || null,
+    outlookTarget: record.outlookTarget || null,
     urgencyScore: record.urgencyScore,
+    importanceReasons: Array.isArray(record.importanceReasons) ? record.importanceReasons : [],
     mergedCount: record.mergedCount,
     isCompleted: Boolean(record.isCompleted)
   };
@@ -205,7 +227,7 @@ async function updateItemSourceUrl(itemId, sourceUrl) {
   await chrome.storage.local.set({ [STORAGE_KEYS.ITEMS]: next });
 }
 
-// Runs inside the page's MAIN JS world to invoke React's onClick prop on the Fluent UI card
+// --- TEAMS MAIN-WORLD OPENER ---
 function clickTeamsCardInMainWorld(target) {
   const cards = [
     ...document.querySelectorAll(".aui-assignmentListCard, [class*='assignmentListCard']")
@@ -235,7 +257,6 @@ function clickTeamsCardInMainWorld(target) {
 
   chosen.scrollIntoView({ behavior: "smooth", block: "center" });
 
-  // Invoke React's onClick prop directly (bypasses isTrusted restrictions on synthetic events)
   const propsKey = Object.keys(chosen).find((k) => k.startsWith("__reactProps"));
   const reactProps = propsKey ? chosen[propsKey] : null;
   if (reactProps && typeof reactProps.onClick === "function") {
@@ -255,7 +276,6 @@ function clickTeamsCardInMainWorld(target) {
     return { clicked: true, cardId: chosen.id || target?.cardId || null };
   }
 
-  // Fallback: keyboard Enter + bubbling click on the card title
   chosen.focus();
   chosen.dispatchEvent(
     new KeyboardEvent("keydown", {
@@ -324,7 +344,6 @@ async function captureAndSaveDeepTeamsUrl(tabId, itemId) {
 }
 
 async function openTeamsAssignmentFlow(item) {
-  // 1. If we already captured the direct /classes/<classId>/assignments/<cardId> URL, open it immediately
   if (
     item.sourceUrl &&
     item.sourceUrl.includes("assignments.edu.cloud.microsoft") &&
@@ -341,7 +360,6 @@ async function openTeamsAssignmentFlow(item) {
     itemId: item.id
   };
 
-  // 2. Try clicking the card inside an already-open Teams / Assignments tab
   const msTabs = await chrome.tabs.query({
     url: ["*://*.cloud.microsoft/*", "*://*.microsoft.com/*", "*://*.office.com/*"]
   });
@@ -363,7 +381,6 @@ async function openTeamsAssignmentFlow(item) {
     }
   }
 
-  // 3. Otherwise open Assignments directly in a new tab and poll in MAIN world until the card renders
   const listUrl =
     item.sourceUrl && item.sourceUrl.includes("assignments.edu.cloud.microsoft")
       ? item.sourceUrl
@@ -382,6 +399,97 @@ async function openTeamsAssignmentFlow(item) {
   }
 
   return { ok: false };
+}
+
+// --- OUTLOOK MAIN-WORLD OPENER ---
+function clickOutlookRowInMainWorld(target) {
+  const rows = [
+    ...document.querySelectorAll('[role="listbox"] [role="option"], [data-convid][role="option"]')
+  ];
+  if (rows.length === 0) return { clicked: false };
+
+  let chosen = target?.convId
+    ? rows.find((r) => r.getAttribute("data-convid") === target.convId)
+    : null;
+
+  if (!chosen && target?.subject) {
+    const normSubj = target.subject.trim().toLowerCase();
+    chosen = rows.find((r) => {
+      const label = (r.getAttribute("aria-label") || r.innerText || "").toLowerCase();
+      return label.includes(normSubj);
+    });
+  }
+
+  if (!chosen) return { clicked: false };
+
+  chosen.scrollIntoView({ behavior: "smooth", block: "center" });
+
+  const propsKey = Object.keys(chosen).find((k) => k.startsWith("__reactProps"));
+  const reactProps = propsKey ? chosen[propsKey] : null;
+  if (reactProps && typeof reactProps.onClick === "function") {
+    reactProps.onClick({
+      type: "click",
+      target: chosen,
+      currentTarget: chosen,
+      bubbles: true,
+      cancelable: true,
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+      stopPropagation() {},
+      persist() {}
+    });
+    return { clicked: true };
+  }
+
+  chosen.click();
+  return { clicked: true };
+}
+
+async function openOutlookMailFlow(item) {
+  const target = item.outlookTarget || {};
+  const fallbackUrl =
+    item.sourceUrl ||
+    (target.convId
+      ? `https://outlook.cloud.microsoft/mail/inbox/id/${encodeURIComponent(target.convId)}`
+      : "https://outlook.cloud.microsoft/mail/");
+
+  const outlookTabs = await chrome.tabs.query({
+    url: [
+      "*://outlook.cloud.microsoft/*",
+      "*://outlook.office.com/*",
+      "*://outlook.live.com/*"
+    ]
+  });
+
+  if (outlookTabs.length > 0 && outlookTabs[0].id) {
+    const tab = outlookTabs[0];
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN",
+        func: clickOutlookRowInMainWorld,
+        args: [target]
+      });
+      const clicked = Boolean(results?.[0]?.result?.clicked);
+      await chrome.tabs.update(tab.id, { active: true });
+      if (tab.windowId) {
+        await chrome.windows.update(tab.windowId, { focused: true });
+      }
+      if (clicked) {
+        return { ok: true, mode: "existing_tab_clicked" };
+      }
+      await chrome.tabs.update(tab.id, { url: fallbackUrl });
+      return { ok: true, mode: "existing_tab_navigated" };
+    } catch (_e) {}
+  }
+
+  const created = await chrome.tabs.create({ url: fallbackUrl, active: true });
+  if (created?.windowId) {
+    await chrome.windows.update(created.windowId, { focused: true });
+  }
+  return { ok: true, mode: "new_tab" };
 }
 
 async function ingestExtractedBatch(batch) {
@@ -424,24 +532,36 @@ async function ingestExtractedBatch(batch) {
       cand.courseName
     );
     const title = (cand.title || parsed.title || "Academic Update").trim().slice(0, 120);
-    const dueDate = cand.dueDate || parsed.dueDate || null;
+    const dueDate = cand.dueDate !== undefined ? cand.dueDate : parsed.dueDate || null;
     const type = cand.type || "ASSIGNMENT";
     const pipeline = cand.pipeline || "Notification Bell";
     const sourcePlatform = cand.sourcePlatform || "Edunex";
     const postedDate = cand.postedDate || new Date().toISOString();
     const sourceUrl = cand.sourceUrl || "";
-    const urgencyScore = computeUrgencyScore(type, dueDate);
+    const urgencyScore = computeUrgencyScore(type, dueDate, cand.urgencyScore || 0);
 
-    const dedupeKey =
-      type === "SCHEDULE"
-        ? `${course.code}|${dueDate || ""}|${normalizeTitleKey(title)}`
-        : `${course.code}|${normalizeTitleKey(title)}`;
+    const outlookConvId = cand.outlookTarget?.convId || "";
+    const courseKey =
+      course.code === "GEN" && course.name ? `${course.code}:${course.name.toLowerCase()}` : course.code;
+
+    const dedupeKey = outlookConvId
+      ? `Outlook|${outlookConvId}`
+      : type === "SCHEDULE"
+      ? `${courseKey}|${dueDate || ""}|${normalizeTitleKey(title)}`
+      : `${courseKey}|${normalizeTitleKey(title)}`;
 
     const existingIdx = nextItems.findIndex((existing) => {
+      if (existing.outlookTarget?.convId && outlookConvId) {
+        return existing.outlookTarget.convId === outlookConvId && !existing.isCompleted;
+      }
+      const existingCourseKey =
+        existing.courseCode === "GEN" && existing.courseName
+          ? `${existing.courseCode}:${existing.courseName.toLowerCase()}`
+          : existing.courseCode;
       const existingKey =
         existing.type === "SCHEDULE"
-          ? `${existing.courseCode}|${existing.dueDate || ""}|${normalizeTitleKey(existing.title)}`
-          : `${existing.courseCode}|${normalizeTitleKey(existing.title)}`;
+          ? `${existingCourseKey}|${existing.dueDate || ""}|${normalizeTitleKey(existing.title)}`
+          : `${existingCourseKey}|${normalizeTitleKey(existing.title)}`;
       return existingKey === dedupeKey && !existing.isCompleted;
     });
 
@@ -455,12 +575,17 @@ async function ingestExtractedBatch(batch) {
 
       const updated = sanitizeStrippedPayload({
         ...existing,
+        courseName: cand.courseName || existing.courseName,
         title,
         dueDate: dueDate || existing.dueDate,
+        postedDate: cand.postedDate || existing.postedDate,
         sourceUrl: preservedUrl,
         sixTarget: cand.sixTarget || existing.sixTarget || null,
         teamsTarget: cand.teamsTarget || existing.teamsTarget || null,
+        classroomTarget: cand.classroomTarget || existing.classroomTarget || null,
+        outlookTarget: cand.outlookTarget || existing.outlookTarget || null,
         urgencyScore: Math.max(existing.urgencyScore || 0, urgencyScore),
+        importanceReasons: cand.importanceReasons || existing.importanceReasons || [],
         mergedCount: existing.type === "SCHEDULE" ? 1 : (existing.mergedCount || 1) + 1
       });
       nextItems[existingIdx] = updated;
@@ -469,7 +594,7 @@ async function ingestExtractedBatch(batch) {
       const created = sanitizeStrippedPayload({
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         courseCode: course.code,
-        courseName: course.name,
+        courseName: cand.courseName || course.name,
         className: cand.className || course.class_name,
         type,
         pipeline,
@@ -480,7 +605,10 @@ async function ingestExtractedBatch(batch) {
         sourceUrl,
         sixTarget: cand.sixTarget || null,
         teamsTarget: cand.teamsTarget || null,
+        classroomTarget: cand.classroomTarget || null,
+        outlookTarget: cand.outlookTarget || null,
         urgencyScore,
+        importanceReasons: cand.importanceReasons || [],
         mergedCount: 1,
         isCompleted: false
       });
@@ -489,9 +617,19 @@ async function ingestExtractedBatch(batch) {
     }
   }
 
+  // Sort active items first; dated deadlines sort chronologically, while undated items (e.g., important mails) sort by importance score descending
   nextItems.sort((a, b) => {
     if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
-    return Date.parse(a.dueDate || "2099-12-31") - Date.parse(b.dueDate || "2099-12-31");
+    if (a.dueDate && b.dueDate) {
+      const diff = Date.parse(a.dueDate) - Date.parse(b.dueDate);
+      if (diff !== 0) return diff;
+    }
+    if (!a.dueDate && !b.dueDate) {
+      const scoreDiff = (b.urgencyScore || 0) - (a.urgencyScore || 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      return Date.parse(b.postedDate || 0) - Date.parse(a.postedDate || 0);
+    }
+    return a.dueDate ? -1 : 1;
   });
 
   await chrome.storage.local.set({ [STORAGE_KEYS.ITEMS]: nextItems });
@@ -536,6 +674,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     if (message?.type === "OPEN_TEAMS_ASSIGNMENT") {
       const result = await openTeamsAssignmentFlow(message.item || {});
+      sendResponse(result);
+      return;
+    }
+
+    if (message?.type === "OPEN_OUTLOOK_MAIL") {
+      const result = await openOutlookMailFlow(message.item || {});
       sendResponse(result);
       return;
     }

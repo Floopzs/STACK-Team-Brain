@@ -11,6 +11,8 @@ const intervalEndInput = document.getElementById("intervalEndInput");
 const edunexToggle = document.getElementById("edunexToggle");
 const sixToggle = document.getElementById("sixToggle");
 const teamsToggle = document.getElementById("teamsToggle");
+const classroomToggle = document.getElementById("classroomToggle");
+const outlookToggle = document.getElementById("outlookToggle");
 const geminiToggle = document.getElementById("geminiToggle");
 const geminiKeyInput = document.getElementById("geminiKeyInput");
 const backendToggle = document.getElementById("backendToggle");
@@ -72,6 +74,42 @@ function escapeHtml(str = "") {
     .replaceAll('"', "&quot;");
 }
 
+async function resolveClassroomUrl(item) {
+  let targetUrl = item.sourceUrl || "https://classroom.google.com/a/not-turned-in/all";
+
+  try {
+    const parsed = new URL(targetUrl);
+    const existingPrefixMatch = parsed.pathname.match(/^(\/u\/\d+)(\/c\/.+)$/);
+    let userPrefix = item.classroomTarget?.userPrefix || (existingPrefixMatch ? existingPrefixMatch[1] : "");
+    let relativePath =
+      item.classroomTarget?.relativePath ||
+      (existingPrefixMatch ? existingPrefixMatch[2] : parsed.pathname);
+
+    if (!userPrefix) {
+      const classroomTabs = await chrome.tabs.query({ url: "*://classroom.google.com/*" });
+      for (const tab of classroomTabs) {
+        if (!tab.url) continue;
+        const tabMatch = new URL(tab.url).pathname.match(/^(\/u\/\d+)(?:\/|$)/);
+        if (tabMatch) {
+          userPrefix = tabMatch[1];
+          break;
+        }
+      }
+    }
+
+    if (/^\/c\/[^/]+\/(?:s?a)\/[^/]+$/i.test(relativePath)) {
+      relativePath = `${relativePath}/details`;
+    }
+
+    if (relativePath.startsWith("/c/")) {
+      parsed.pathname = `${userPrefix}${relativePath}`;
+      targetUrl = parsed.href;
+    }
+  } catch (_e) {}
+
+  return targetUrl;
+}
+
 async function handleOpenSource(item) {
   if (item.sourcePlatform === "SIX" && item.sixTarget) {
     const targetPayload = {
@@ -111,8 +149,25 @@ async function handleOpenSource(item) {
     return;
   }
 
+  if (item.sourcePlatform === "Outlook") {
+    await sendMsg({
+      type: "OPEN_OUTLOOK_MAIL",
+      item
+    });
+    return;
+  }
+
+  if (item.sourcePlatform === "Google Classroom") {
+    const classroomUrl = await resolveClassroomUrl(item);
+    const createdTab = await chrome.tabs.create({ url: classroomUrl, active: true });
+    if (createdTab?.windowId) {
+      await chrome.windows.update(createdTab.windowId, { focused: true });
+    }
+    return;
+  }
+
   if (item.sourceUrl) {
-    await chrome.tabs.create({ url: item.sourceUrl });
+    await chrome.tabs.create({ url: item.sourceUrl, active: true });
   }
 }
 
@@ -124,6 +179,8 @@ async function refreshUI() {
   edunexToggle.checked = Boolean(settings.edunexEnabled);
   sixToggle.checked = Boolean(settings.sixEnabled);
   teamsToggle.checked = settings.teamsEnabled !== false;
+  classroomToggle.checked = settings.classroomEnabled !== false;
+  outlookToggle.checked = settings.outlookEnabled !== false;
   geminiToggle.checked = Boolean(settings.geminiEnabled);
   geminiKeyInput.value = settings.geminiApiKey || "";
   backendToggle.checked = Boolean(settings.backendSyncEnabled);
@@ -139,13 +196,17 @@ async function refreshUI() {
     if (item.sourcePlatform === "Edunex" && !settings.edunexEnabled) return false;
     if (item.sourcePlatform === "SIX" && !settings.sixEnabled) return false;
     if (item.sourcePlatform === "Teams" && settings.teamsEnabled === false) return false;
+    if (item.sourcePlatform === "Google Classroom" && settings.classroomEnabled === false) {
+      return false;
+    }
+    if (item.sourcePlatform === "Outlook" && settings.outlookEnabled === false) return false;
     return isWithinInterval(item, windowSettings);
   });
 
   itemCountEl.textContent = visibleItems.length;
 
   if (visibleItems.length === 0) {
-    feedListEl.innerHTML = `<div class="item-meta">No items in this window. Open Edunex, SIX, or Teams and click "Scan Open Tab".</div>`;
+    feedListEl.innerHTML = `<div class="item-meta">No items in this window. Open Edunex, SIX, Teams, Classroom, or Outlook and click "Scan Open Tab".</div>`;
     return;
   }
 
@@ -153,6 +214,18 @@ async function refreshUI() {
     .map((item) => {
       const doneClass = item.isCompleted ? "done" : "";
       const mergedBadge = (item.mergedCount || 1) > 1 ? ` · ${item.mergedCount} merged` : "";
+      const courseLabel =
+        item.courseCode && item.courseCode !== "GEN"
+          ? item.courseCode
+          : item.courseName || "Course";
+      const priorityBadge =
+        item.sourcePlatform === "Outlook"
+          ? ` · Priority ${item.urgencyScore || 50}/100`
+          : "";
+      const dateDisplay =
+        item.sourcePlatform === "Outlook" && !item.dueDate
+          ? `Received ${formatDue(item.postedDate)}`
+          : formatDue(item.dueDate);
       const linkHtml = item.sourceUrl
         ? `<a class="item-link" data-id="${item.id}" href="${item.sourceUrl}" target="_blank" rel="noopener noreferrer">Open source ↗</a>`
         : "";
@@ -164,7 +237,7 @@ async function refreshUI() {
             <div>
               <div class="item-title ${doneClass}">${escapeHtml(item.title)}</div>
               <div class="item-meta">
-                ${escapeHtml(item.courseCode)} · ${escapeHtml(item.sourcePlatform)} (${escapeHtml(item.type || "ITEM")}) · ${escapeHtml(formatDue(item.dueDate))}${mergedBadge}
+                ${escapeHtml(courseLabel)} · ${escapeHtml(item.sourcePlatform)} (${escapeHtml(item.type || "ITEM")}) · ${escapeHtml(dateDisplay)}${escapeHtml(priorityBadge)}${mergedBadge}
               </div>
               ${linkHtml}
             </div>
@@ -194,7 +267,10 @@ async function refreshUI() {
       const item = visibleItems.find((i) => i.id === linkEl.dataset.id);
       if (
         item &&
-        ((item.sourcePlatform === "SIX" && item.sixTarget) || item.sourcePlatform === "Teams")
+        ((item.sourcePlatform === "SIX" && item.sixTarget) ||
+          item.sourcePlatform === "Teams" ||
+          item.sourcePlatform === "Outlook" ||
+          item.sourcePlatform === "Google Classroom")
       ) {
         e.preventDefault();
         handleOpenSource(item);
@@ -224,9 +300,12 @@ document.getElementById("scanBtn").addEventListener("click", async () => {
   }
 
   let host = "";
+  let path = "";
   let isAllowedHost = false;
   try {
-    host = new URL(tab.url).hostname.toLowerCase();
+    const parsedUrl = new URL(tab.url);
+    host = parsedUrl.hostname.toLowerCase();
+    path = parsedUrl.pathname.toLowerCase();
     isAllowedHost =
       host === "itb.ac.id" ||
       host.endsWith(".itb.ac.id") ||
@@ -237,13 +316,15 @@ document.getElementById("scanBtn").addEventListener("click", async () => {
       host === "microsoft.com" ||
       host.endsWith(".microsoft.com") ||
       host === "office.com" ||
-      host.endsWith(".office.com");
+      host.endsWith(".office.com") ||
+      host === "outlook.live.com" ||
+      host === "classroom.google.com";
   } catch (_e) {
     isAllowedHost = false;
   }
 
   if (!isAllowedHost) {
-    statusEl.textContent = "Open an allowed Edunex, SIX, or Teams page first, then scan.";
+    statusEl.textContent = "Open an allowed Edunex, SIX, Teams, Classroom, or Outlook page first.";
     return;
   }
 
@@ -259,9 +340,11 @@ document.getElementById("scanBtn").addEventListener("click", async () => {
   chrome.tabs.sendMessage(tab.id, { type: "SCAN_OPEN_PAGE" }, async (res) => {
     if (chrome.runtime.lastError || !res?.ok) {
       const isTeamsHost =
-        host.includes("cloud.microsoft") ||
-        host.includes("microsoft.com") ||
-        host.includes("office.com");
+        !host.includes("outlook.") &&
+        !path.startsWith("/mail") &&
+        (host.includes("cloud.microsoft") ||
+          host.includes("microsoft.com") ||
+          host.includes("office.com"));
       statusEl.textContent = isTeamsHost
         ? "No upcoming assignments found on this Teams view. Open Assignments → Upcoming and try again."
         : "Could not read page. Refresh the tab and try again.";
@@ -307,6 +390,8 @@ document.getElementById("saveSettingsBtn").addEventListener("click", async () =>
       edunexEnabled: edunexToggle.checked,
       sixEnabled: sixToggle.checked,
       teamsEnabled: teamsToggle.checked,
+      classroomEnabled: classroomToggle.checked,
+      outlookEnabled: outlookToggle.checked,
       geminiEnabled: geminiToggle.checked,
       geminiApiKey: geminiKeyInput.value.trim(),
       backendSyncEnabled: backendToggle.checked,

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Ganesmart Reader",
   "version": "0.1.0",
-  "description": "Local-first deadline and class schedule reader for open Edunex, SIX, and Microsoft Teams pages without touching credentials, tokens, or grades.",
+  "description": "Local-first deadline, important mail, and class schedule reader for open Edunex, SIX, Microsoft Teams, Google Classroom, and Outlook pages.",
   "permissions": [
     "storage",
     "activeTab",
@@ -13,7 +13,9 @@
     "*://*.cognisia.id/*",
     "*://*.cloud.microsoft/*",
     "*://*.microsoft.com/*",
-    "*://*.office.com/*"
+    "*://*.office.com/*",
+    "*://outlook.live.com/*",
+    "*://classroom.google.com/*"
   ],
   "action": {
     "default_popup": "popup.html"
@@ -28,7 +30,9 @@
         "*://*.cognisia.id/*",
         "*://*.cloud.microsoft/*",
         "*://*.microsoft.com/*",
-        "*://*.office.com/*"
+        "*://*.office.com/*",
+        "*://outlook.live.com/*",
+        "*://classroom.google.com/*"
       ],
       "js": ["content.js"],
       "all_frames": true,
